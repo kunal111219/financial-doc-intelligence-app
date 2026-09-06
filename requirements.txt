@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+langgraph
+langchain-community
+chromadb
+ollama
+pdfplumber
+pytesseract
+pdf2image
+ragas
+rank_bm25
+pandas
+openpyxl
+python-dotenv
+python-multipart
+ruff
