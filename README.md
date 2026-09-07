@@ -49,6 +49,7 @@ backend/
 │   ├── cross_check_agent.py  Node 3 — consistency/audit checks
 │   ├── reporting_agent.py    Node 4 — compiles final report
 │   └── graph.py              Wires the four nodes into a LangGraph pipeline
+├── run_pipeline.py           Real entry point — runs the pipeline against indexed docs
 ├── retrieval/
 │   ├── loader.py             PDF text extraction (+ OCR fallback)
 │   ├── chunker.py            Overlapping character-window chunking
@@ -111,12 +112,65 @@ invoice lookups, risk factor sections all continued to rank correctly).
 This is documented in more detail via `retrieval/diagnose_penalty_query.py`,
 which was used to pinpoint the exact rank and root cause before choosing a fix.
 
+## Multi-agent pipeline: findings from the first full run
+
+Running the complete pipeline (retrieval → extraction → cross-check →
+reporting) against all 12 synthetic documents surfaced three real issues,
+fixed as follows:
+
+1. **False "missing invoice number" flags on contracts.** The extraction
+   schema only had an `invoice_number` field, so contracts (which have a
+   *contract number* instead) were always flagged as missing one. Fixed by
+   adding a `document_type` field to extraction and applying the correct
+   identifier check per type.
+
+2. **Overly broad vendor cross-check.** The original logic flagged *any*
+   two documents from the same vendor with different totals — but multiple
+   invoices from one vendor naturally have different amounts, so this
+   produced noise rather than signal. Fixed by narrowing the check to what's
+   actually audit-relevant: whether a vendor's invoiced total exceeds what
+   their contract authorizes.
+
+3. **A multi-page document's totals were extracted inconsistently across
+   runs.** `invoice_09_multipage_clean.pdf` (line items on page 1, totals
+   on page 3) sometimes produced the correct total and sometimes didn't,
+   with no code changes between runs. Root-caused in two layers:
+
+   - **Layer 1 — LLM sampling variance.** Ollama's default generation
+     settings sample from a probability distribution even at low
+     temperature, so identical prompts could yield different structured
+     output. Fixed by setting `temperature: 0`, `top_k: 1`, `top_p: 0`,
+     and a fixed `seed` for fully greedy, deterministic decoding.
+
+   - **Layer 2 — retrieval ordering non-determinism.** Even after fixing
+     LLM decoding, one document still varied between two consistent
+     outcomes. Traced to floating-point non-determinism in local embedding
+     computation (multi-threaded CPU inference doesn't always sum in the
+     same order) — small enough to not change *which* chunks were
+     retrieved, but occasionally enough to flip the *order* two
+     closely-ranked chunks were returned in. Since the extraction agent
+     read chunks in retrieval-rank order, this changed which chunk the LLM
+     encountered first and how it reconciled the totals. Fixed by sorting
+     retrieved chunks by their original position in the source document
+     (`chunk_index`) before passing them to extraction, rather than by
+     relevance rank — this removes ordering as a variable entirely.
+
+   Verified stable, correct output across multiple repeated runs on all
+   12 test documents after both fixes.
+
+   **Takeaway:** deterministic LLM decoding alone doesn't guarantee
+   deterministic pipeline output — non-determinism can enter upstream, in
+   retrieval, and silently propagate downstream even when generation itself
+   is pinned. Worth checking end-to-end, not just at the LLM call site.
+
+
 ## Roadmap
 
 - [x] Phase 0 — Environment setup (Ollama, Python/FastAPI backend, React frontend)
 - [x] Phase 1 — Document collection (real 10-Ks + synthetic test set)
 - [x] Phase 2 — Retrieval layer (chunking, ChromaDB indexing, hybrid search)
-- [ ] Phase 3 — Multi-agent pipeline (extraction, cross-check, reporting agents)
+- [x] Phase 3 — Multi-agent pipeline (extraction, cross-check, reporting agents),
+      validated deterministic and correct across repeated runs on all 12 test documents
 - [ ] Phase 4 — RAGAS evaluation (retrieval precision/recall, answer faithfulness)
 - [ ] Phase 5 — FastAPI backend (upload, job status, report endpoints)
 - [ ] Phase 6 — React frontend (upload UI, progress tracking, report view)
@@ -129,7 +183,9 @@ which was used to pinpoint the exact rank and root cause before choosing a fix.
 
 *"Built a multi-agent financial document intelligence system — hybrid
 BM25/vector RAG retrieval, LLM-based structured extraction, and automated
-cross-document consistency checks — evaluated with RAGAS and diagnosed a
-retrieval ranking failure (correct match at rank 16/2934) that hybrid search
-fixed to rank 1. Deployed via Docker/CI-CD to Hugging Face Spaces, AWS, and
+cross-document consistency checks. Diagnosed and fixed a retrieval ranking
+failure (correct match at rank 16/2934, corrected to rank 1 via hybrid
+search) and a two-layer non-determinism issue spanning LLM decoding and
+retrieval ordering, validating fully reproducible output across repeated
+runs. Deployed via Docker/CI-CD to Hugging Face Spaces, AWS, and
 GCP."*
