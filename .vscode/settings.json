@@ -1,5 +1,14 @@
 {
     "cSpell.words": [
-        "Ollama"
+        "chromadb",
+        "dotenv",
+        "fastapi",
+        "langchain",
+        "langgraph",
+        "Ollama",
+        "openpyxl",
+        "pdfplumber",
+        "pytesseract",
+        "uvicorn"
     ]
 }

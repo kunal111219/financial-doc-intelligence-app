@@ -8,6 +8,7 @@ pdfplumber
 pytesseract
 pdf2image
 ragas
+langchain-ollama
 rank_bm25
 pandas
 openpyxl
