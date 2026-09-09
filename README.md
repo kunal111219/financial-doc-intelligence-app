@@ -44,21 +44,32 @@ No paid services are required to build or run this project.
 backend/
 ├── agents/
 │   ├── state.py              Shared pipeline state (TypedDict)
-│   ├── retrieval_agent.py    Node 1 — hybrid search per document
+│   ├── retrieval_agent.py    Node 1 — hybrid search per document, collection-aware
 │   ├── extraction_agent.py   Node 2 — LLM-based structured extraction
 │   ├── cross_check_agent.py  Node 3 — consistency/audit checks
 │   ├── reporting_agent.py    Node 4 — compiles final report
 │   └── graph.py              Wires the four nodes into a LangGraph pipeline
-├── run_pipeline.py           Real entry point — runs the pipeline against indexed docs
+├── run_pipeline.py           CLI entry point — runs the pipeline against the main indexed docs
+├── app.py                    FastAPI backend — upload / status / report endpoints
+├── job_store.py              In-memory job tracking for API-driven runs
 ├── retrieval/
 │   ├── loader.py             PDF text extraction (+ OCR fallback)
 │   ├── chunker.py            Overlapping character-window chunking
-│   ├── ingest.py             Builds the ChromaDB index from data/raw/
-│   ├── hybrid_retriever.py   BM25 + vector search fused via RRF
+│   ├── ingest.py             Builds ChromaDB indexes (main + reusable per-job)
+│   ├── hybrid_retriever.py   BM25 + vector search fused via RRF, collection-aware
 │   └── query_test.py         Manual retrieval sanity checks
+├── evaluation/
+│   ├── eval_dataset.py       Hand-labeled Q&A test set
+│   └── run_ragas_eval.py     RAGAS evaluation runner (local Ollama judge)
 ├── data/raw/                 Source PDFs (10-Ks + synthetic invoices/contracts)
+├── data/jobs/                Per-upload working files (gitignored)
 └── requirements.txt
-frontend/                     React + Tailwind UI (upload, progress, report view)
+frontend/
+├── index.html                Google Fonts (Source Serif 4, IBM Plex Mono, Inter)
+├── vite.config.js            Vite + Tailwind v4 plugin
+└── src/
+    ├── App.jsx               Upload UI, status polling, ledger-style report view
+    └── index.css             Tailwind v4 theme tokens (@theme block)
 ```
 
 ## Test document set
@@ -211,6 +222,64 @@ local model as an LLM-as-judge instead of a larger hosted one — it affects
 evaluation reliability, not the underlying system's correctness. Averages
 above are computed over the rows that successfully scored.
 
+## FastAPI backend: per-job isolation
+
+Phase 5 wraps the pipeline in a FastAPI backend (`app.py`) with three
+endpoints — `POST /upload`, `GET /status/{job_id}`, `GET /report/{job_id}` —
+built around a background-task pattern so the upload request returns
+instantly while the pipeline runs asynchronously.
+
+The main design decision: **each upload gets its own isolated ChromaDB
+collection** (`job_<id>`), built fresh from just the uploaded files, rather
+than sharing the main project index. This required refactoring
+`retrieval/ingest.py` and `HybridRetriever` to accept a `collection_name`
+parameter, and adding `collection_name` to the shared pipeline state so the
+retrieval agent knows which index to query. Without this, concurrent or
+successive uploads would mix into a single shared index — irrelevant chunks
+from one user's documents would pollute retrieval for another's.
+
+Verified via direct HTTP calls (`curl`): the happy path, a cross-document
+vendor-vs-contract check running correctly through the API (not just the
+CLI), rejection of non-PDF uploads, and 404s on unknown job IDs.
+
+## React frontend: designing for the subject matter
+
+Phase 6's first pass used a generic SaaS-dashboard look — rounded cards,
+blue accents, pill-shaped badges. It worked, but it didn't read as a
+deliberate design choice, and a generic UI doesn't demonstrate frontend
+judgment. It was rebuilt around the actual subject matter: an audit/ledger
+tool, not a consumer app.
+
+Key choices:
+- **Serif headline + monospace data + sans body** — numbers (totals, job
+  IDs) use `IBM Plex Mono` with tabular alignment, closer to how a real
+  ledger presents figures, rather than uniform sans-serif throughout.
+- **A hero metric strip** (documents reviewed, total value, high/medium
+  finding counts) as the page's visual anchor, using large mono numerals —
+  appropriate here since the report's headline fact genuinely is
+  quantitative, not decorative.
+- **Findings as a register, not badges** — each flagged issue renders as a
+  full-width tinted row (soft red for HIGH, amber for MEDIUM) with a thick
+  colored left border, giving the section the visual weight it deserves
+  since it's the tool's entire point, rather than a small pill next to
+  quiet text.
+- **A structural report parser** (`parseReport()` in `App.jsx`) that turns
+  the backend's markdown into real data — a summary table and a findings
+  array — rather than rendering markdown line-by-line.
+
+One real bug surfaced during this rebuild: **Tailwind v4 uses a completely
+different configuration model** than v3 (a `@theme` block in CSS instead of
+`tailwind.config.js` + `@tailwind` directives) — the initial redesign
+silently produced zero styling because it used v3-style config against a
+v4 install. Fixed by switching to the `@tailwindcss/vite` plugin and a
+CSS-native `@theme` token block.
+
+A second, subtler issue: an early color choice (a cool, slightly blue-green
+muted gray) read as visibly olive/greenish against the warm cream paper
+background — a **simultaneous contrast effect**, where a cool neutral next
+to a warm background visually shifts toward its complementary hue. Fixed by
+warming the gray to match the background's undertone.
+
 
 ## Roadmap
 
@@ -220,8 +289,10 @@ above are computed over the rows that successfully scored.
 - [x] Phase 3 — Multi-agent pipeline (extraction, cross-check, reporting agents),
       validated deterministic and correct across repeated runs on all 12 test documents
 - [x] Phase 4 — RAGAS evaluation (retrieval precision/recall, answer faithfulness)
-- [ ] Phase 5 — FastAPI backend (upload, job status, report endpoints)
-- [ ] Phase 6 — React frontend (upload UI, progress tracking, report view)
+- [x] Phase 5 — FastAPI backend (upload, job status, report endpoints),
+      with per-job isolated indexing verified via direct HTTP calls
+- [x] Phase 6 — React frontend (upload UI, progress tracking, report view),
+      redesigned around the subject matter after an initial generic pass
 - [ ] Phase 7 — Docker + GitHub Actions CI/CD
 - [ ] Phase 8 — Deployment (Hugging Face Spaces permanent; AWS + GCP for
       short-lived capture)
@@ -229,11 +300,12 @@ above are computed over the rows that successfully scored.
 
 ## Resume framing
 
-*"Built a multi-agent financial document intelligence system — hybrid
-BM25/vector RAG retrieval, LLM-based structured extraction, and automated
-cross-document consistency checks. Diagnosed and fixed a retrieval ranking
-failure (correct match at rank 16/2934, corrected to rank 1 via hybrid
-search) and a two-layer non-determinism issue spanning LLM decoding and
-retrieval ordering, validating fully reproducible output across repeated
-runs. Deployed via Docker/CI-CD to Hugging Face Spaces, AWS, and
-GCP."*
+*"Built a full-stack multi-agent financial document intelligence system —
+hybrid BM25/vector RAG retrieval, LLM-based structured extraction, automated
+cross-document consistency checks, a FastAPI backend with per-job isolated
+indexing, and a React frontend designed around the audit/ledger domain.
+Diagnosed and fixed a retrieval ranking failure (correct match at rank
+16/2934, corrected to rank 1 via hybrid search) and a two-layer
+non-determinism issue spanning LLM decoding and retrieval ordering,
+validating fully reproducible output across repeated runs. Deployed via
+Docker/CI-CD to Hugging Face Spaces, AWS, and GCP."*
