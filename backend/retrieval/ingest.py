@@ -1,7 +1,12 @@
 """
 ingest.py
 The Phase 2 entry point. Run this once (and again whenever data/raw/ changes)
-to build the ChromaDB index that retrieval_agent.py queries at runtime.
+to build the ChromaDB index that retrieval_agent.py queries at runtime for
+run_pipeline.py and the RAGAS evaluation.
+
+The core indexing logic is factored into index_documents() so the FastAPI
+backend (Phase 5) can reuse it to build a small, isolated per-job index for
+whatever the user just uploaded, without touching this main collection.
 
 Usage:
     python retrieval/ingest.py
@@ -32,27 +37,27 @@ def embed(text: str, is_query: bool = False) -> list[float]:
     return response["embedding"]
 
 
-def build_index():
+def index_documents(documents: dict[str, str], collection_name: str, fresh: bool = True) -> int:
+    """
+    Chunks, embeds, and indexes a dict of {filename: raw_text} into the
+    given ChromaDB collection. If fresh=True, any existing collection with
+    that name is dropped first (used for both the main rebuild and for
+    building a clean per-job collection for API uploads).
+
+    Returns the total number of chunks indexed.
+    """
     client = chromadb.PersistentClient(path=CHROMA_PATH)
 
-    # Fresh start each run — simplest correct behavior for a portfolio project.
-    # (For an incremental/production version, you'd diff against existing IDs instead.)
-    try:
-        client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
-    collection = client.create_collection(
-        COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
-
-    print("Loading documents...")
-    documents = load_all_documents()
-    print(f"Loaded {len(documents)} documents.\n")
+    if fresh:
+        try:
+            client.delete_collection(collection_name)
+        except Exception:
+            pass
+        collection = client.create_collection(collection_name, metadata={"hnsw:space": "cosine"})
+    else:
+        collection = client.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
 
     total_chunks = 0
-    start_time = time.time()
-
     for filename, raw_text in documents.items():
         chunks = chunk_text(raw_text)
         if not chunks:
@@ -61,7 +66,6 @@ def build_index():
 
         print(f"Indexing {filename}: {len(chunks)} chunks...")
 
-        # Embed in small batches to keep memory/requests reasonable on large 10-Ks
         batch_size = 20
         for batch_start in range(0, len(chunks), batch_size):
             batch = chunks[batch_start: batch_start + batch_size]
@@ -69,16 +73,23 @@ def build_index():
             ids = [f"{filename}_{batch_start + i}" for i in range(len(batch))]
             metadatas = [{"source": filename, "chunk_index": batch_start + i} for i in range(len(batch))]
 
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                documents=batch,
-                metadatas=metadatas,
-            )
+            collection.add(ids=ids, embeddings=embeddings, documents=batch, metadatas=metadatas)
 
         total_chunks += len(chunks)
 
+    return total_chunks
+
+
+def build_index():
+    """CLI entry point — rebuilds the main project index from data/raw/."""
+    print("Loading documents...")
+    documents = load_all_documents()
+    print(f"Loaded {len(documents)} documents.\n")
+
+    start_time = time.time()
+    total_chunks = index_documents(documents, COLLECTION_NAME, fresh=True)
     elapsed = time.time() - start_time
+
     print(f"\nDone. Indexed {total_chunks} chunks across {len(documents)} documents in {elapsed:.1f}s.")
     print(f"ChromaDB persisted at: {CHROMA_PATH}")
 

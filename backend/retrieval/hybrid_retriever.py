@@ -39,9 +39,9 @@ class HybridRetriever:
     would be wasteful.
     """
 
-    def __init__(self, source_filter: str | None = None):
+    def __init__(self, source_filter: str | None = None, collection_name: str = COLLECTION_NAME):
         self.client = chromadb.PersistentClient(path=CHROMA_PATH)
-        self.collection = self.client.get_collection(COLLECTION_NAME)
+        self.collection = self.client.get_collection(collection_name)
 
         where = {"source": source_filter} if source_filter else None
         all_data = self.collection.get(where=where, include=["documents", "metadatas"])

@@ -30,6 +30,7 @@ class Flag(TypedDict):
 
 class PipelineState(TypedDict):
     job_id: str
+    collection_name: str                      # which ChromaDB collection to search — allows API jobs to use an isolated per-job index
     documents: List[DocumentRecord]          # filled by ingestion, read by retrieval agent
     retrieved_context: Dict[str, List[str]]   # filled by retrieval agent, keyed by filename
     extracted: List[ExtractedData]            # filled by extraction agent
