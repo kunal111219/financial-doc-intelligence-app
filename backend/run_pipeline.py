@@ -5,13 +5,21 @@ The real Phase 3 entry point — runs the full LangGraph pipeline
 documents are actually indexed in ChromaDB (via retrieval/ingest.py),
 instead of the fake dummy state used in agents/graph.py's smoke test.
 
+By default, runs against every document currently indexed — no filenames
+are hardcoded. Pass a substring filter to run a subset instead (useful
+since the 10-Ks are slow to process one at a time on local CPU inference).
+
 Usage (from backend/):
-    python run_pipeline.py
+    python run_pipeline.py                # run everything indexed
+    python run_pipeline.py invoice         # only filenames containing "invoice"
+    python run_pipeline.py 10k             # only filenames containing "10k"
+    python run_pipeline.py --list          # just show what's indexed, don't run
 """
 
 import os
 import sys
 import uuid
+import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "retrieval"))
 sys.path.append(os.path.dirname(__file__))
@@ -24,23 +32,29 @@ CHROMA_PATH = os.path.join(os.path.dirname(__file__), "chroma_store")
 COLLECTION_NAME = "financial_docs"
 
 
-def get_indexed_filenames() -> list[str]:
-    """Returns the unique list of source filenames currently indexed."""
+def get_indexed_filenames(name_contains: str | None = None) -> list[str]:
+    """
+    Returns the unique list of source filenames currently indexed,
+    optionally filtered to those whose filename contains name_contains
+    (case-insensitive).
+    """
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection = client.get_collection(COLLECTION_NAME)
     all_data = collection.get(include=["metadatas"])
     sources = sorted({m["source"] for m in all_data["metadatas"]})
+
+    if name_contains:
+        needle = name_contains.lower()
+        sources = [s for s in sources if needle in s.lower()]
+
     return sources
 
 
-def run(filenames: list[str] | None = None):
-    """
-    filenames: optional list to restrict the run to specific documents
-    (e.g. just the synthetic invoices for a fast test run). Defaults to
-    everything indexed.
-    """
-    if filenames is None:
-        filenames = get_indexed_filenames()
+def run(filenames: list[str]):
+    if not filenames:
+        print("No matching documents found in the index. Run retrieval/ingest.py first,")
+        print("or check your filter — nothing to process.")
+        return None
 
     print(f"Running pipeline on {len(filenames)} documents:")
     for f in filenames:
@@ -51,6 +65,7 @@ def run(filenames: list[str] | None = None):
 
     initial_state: PipelineState = {
         "job_id": str(uuid.uuid4())[:8],
+        "collection_name": COLLECTION_NAME,
         "documents": [{"filename": f, "raw_text": "", "chunks": []} for f in filenames],
         "retrieved_context": {},
         "extracted": [],
@@ -69,21 +84,18 @@ def run(filenames: list[str] | None = None):
 
 
 if __name__ == "__main__":
-    # Start with just the synthetic invoices/contracts first — much faster
-    # than running the full pipeline against the 10-Ks, and this is where
-    # the extraction/cross-check logic actually gets exercised.
-    synthetic_docs = [
-        "invoice_01_clean_acme.pdf",
-        "invoice_02_clean_bluewave.pdf",
-        "invoice_03_error_acme.pdf",
-        "invoice_04_missing_number.pdf",
-        "invoice_05_clean_greenfield.pdf",
-        "contract_01_acme_agreement.pdf",
-        "invoice_06_acme_mismatch.pdf",
-        "contract_02_bluewave_agreement.pdf",
-        "invoice_07_clean_usd_vendor.pdf",
-        "invoice_08_error_linesum.pdf",
-        "invoice_09_multipage_clean.pdf",
-        "invoice_10_multipage_error.pdf",
-    ]
-    run(filenames=synthetic_docs)
+    parser = argparse.ArgumentParser(description="Run the full pipeline against indexed documents.")
+    parser.add_argument("filter", nargs="?", default=None,
+                         help="Optional substring — only run documents whose filename contains it.")
+    parser.add_argument("--list", action="store_true",
+                         help="List matching indexed documents without running the pipeline.")
+    args = parser.parse_args()
+
+    matched = get_indexed_filenames(args.filter)
+
+    if args.list:
+        print(f"{len(matched)} document(s) match:")
+        for f in matched:
+            print(f"  - {f}")
+    else:
+        run(matched)

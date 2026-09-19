@@ -28,6 +28,11 @@ QUERY_TEMPLATES = [
     "invoice number, date, and total amount",
     "vendor or party names and contract terms",
     "payment obligations, due dates, and penalties",
+    "total revenue",
+    "net income",
+    "total assets",
+    "total liabilities",
+    "total stockholders equity",
 ]
 
 
@@ -44,7 +49,7 @@ def retrieval_node(state: PipelineState) -> PipelineState:
 
         matches = {}  # id -> (chunk_index, text)
         for query in QUERY_TEMPLATES:
-            for result in retriever.search(query, top_k=3):
+            for result in retriever.search(query, top_k=2):
                 matches[result["id"]] = (result["chunk_index"], result["text"])
 
         ordered = sorted(matches.values(), key=lambda pair: pair[0])
