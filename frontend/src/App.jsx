@@ -48,7 +48,7 @@ function HeroMetrics({ docCount, totalReviewed, highCount, mediumCount, hasFilin
 }
 
 function ReportDocument({ report, jobId }) {
-  const { docCount, summaryRows, findings, highCount, mediumCount, totalReviewed } = parseReport(report);
+  const { docCount, summaryRows, findings, highCount, mediumCount, totalReviewed, benford } = parseReport(report);
   const hasFilings = summaryRows.some((r) => r.isFiling);
 
   return (
@@ -115,6 +115,51 @@ function ReportDocument({ report, jobId }) {
             </div>
           )}
         </div>
+
+        {benford && (
+          <div className="px-8 py-6 border-t border-rule">
+            <h3 className="text-sm font-medium text-ink-muted mb-4">Statistical Analysis: Benford's Law</h3>
+            {benford.status === "insufficient_data" ? (
+              <p className="text-sm text-ink-muted">
+                Sample size ({benford.sampleSize} documents) is below the minimum
+                ({benford.minimumRequired}) needed for a statistically meaningful analysis.
+                No result is reported.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-ink-muted font-mono">
+                  n = {benford.sampleSize} · χ² = {benford.chiSquare} · p = {benford.pValue}
+                </p>
+                <p className="text-sm mt-2">
+                  <span className={benford.conforms ? "text-clean" : "text-high"}>
+                    {benford.conforms ? "Conforms to" : "Deviates from"} Benford's Law
+                  </span>
+                  <span className="text-ink-muted"> at the p &lt; 0.05 threshold.</span>
+                </p>
+                {benford.digitRows.length > 0 && (
+                  <table className="w-full text-sm mt-4 max-w-xs">
+                    <thead>
+                      <tr className="text-left text-ink-muted border-b border-rule">
+                        <th className="font-normal pb-2 pr-4">Digit</th>
+                        <th className="font-normal pb-2 pr-4">Observed</th>
+                        <th className="font-normal pb-2">Expected</th>
+                      </tr>
+                    </thead>
+                    <tbody className="font-mono">
+                      {benford.digitRows.map((row) => (
+                        <tr key={row.digit} className="border-b border-rule last:border-0">
+                          <td className="py-1.5 pr-4 text-ink">{row.digit}</td>
+                          <td className="py-1.5 pr-4 text-ink-muted">{row.observed}%</td>
+                          <td className="py-1.5 text-ink-muted">{row.expected}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </>
   );

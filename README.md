@@ -291,7 +291,17 @@ regression suites on both ends:
   environment and `1,00,300.00` (Indian lakh/crore grouping) in another —
   fixed by pinning the locale explicitly to `"en-US"` rather than leaving
   a financial report's number formatting dependent on the viewer's OS
-  settings.
+  settings. **A fourth issue was caught during full end-to-end UI testing**
+  (100 documents uploaded through the actual interface, not just unit
+  tests): the backend's Benford's Law section was computed correctly in
+  every report, but the frontend's parser never extracted or rendered it
+  at all — a fully-working feature was silently invisible in the UI. Fixed
+  by extending `parseReport()` to detect both possible outcomes (a gated
+  "insufficient data" message and a full analyzed result with its digit-
+  distribution table), adding a dedicated UI section, and adding 4 more
+  regression tests (14 total) — including one for a small regex bug caught
+  along the way (a trailing sentence period leaking into the parsed
+  p-value).
 
 ```bash
 # Backend
@@ -330,7 +340,7 @@ gating). Validated the financial-statement check against real, independently
 verified SEC filing data, correctly diagnosing a false positive as an
 extraction error rather than a logic flaw. Diagnosed and fixed a retrieval
 ranking failure and a two-layer non-determinism issue spanning LLM decoding
-and retrieval ordering. Backed by a 28-test automated regression suite
+and retrieval ordering. Backed by a 32-test automated regression suite
 (pytest + Vitest) that caught two real bugs during development. Delivered
 via a FastAPI backend with per-job isolated
 indexing and a React frontend designed around the audit domain."*
