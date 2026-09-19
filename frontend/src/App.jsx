@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { parseReport, formatCurrency } from "./reportParser";
 
 const API_BASE = "http://localhost:8000";
 
@@ -7,83 +8,6 @@ const STAGES = [
   { key: "running", label: "Analyzing" },
   { key: "done", label: "Complete" },
 ];
-
-/**
- * Parses the pipeline's markdown report into structured data (a summary
- * table + a findings register) rather than rendering markdown line-by-line.
- * This is intentionally coupled to reporting_agent.py's exact output
- * format — see agents/reporting_agent.py.
- */
-function parseReport(markdown) {
-  const summaryRows = [];
-  const findings = [];
-  let docCount = null;
-
-  const lines = markdown.split("\n");
-  let section = null;
-
-  for (const line of lines) {
-    const countMatch = line.match(/Documents processed:\s*(\d+)/);
-    if (countMatch) docCount = countMatch[1];
-
-    if (line.startsWith("## Summary")) { section = "summary"; continue; }
-    if (line.startsWith("## Flagged Issues")) { section = "findings"; continue; }
-
-    if (section === "summary") {
-      const m = line.match(/-\s+\*\*(.+?)\*\*\s+—\s+Vendor:\s*(.+?),\s*Total:\s*(.+)/);
-      if (m) summaryRows.push({ filename: m[1], vendor: m[2], total: parseFloat(m[3]) || 0 });
-    }
-
-    if (section === "findings") {
-      const m = line.match(/-\s+\[(HIGH|MEDIUM|LOW)\]\s+(.+?):\s+(.+)/);
-      if (m) findings.push({ severity: m[1], filename: m[2], issue: m[3] });
-    }
-  }
-
-  const highCount = findings.filter((f) => f.severity === "HIGH").length;
-  const mediumCount = findings.filter((f) => f.severity === "MEDIUM").length;
-  const totalReviewed = summaryRows.reduce((sum, r) => sum + r.total, 0);
-
-  return { docCount, summaryRows, findings, highCount, mediumCount, totalReviewed };
-}
-
-function formatCurrency(n) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-
-function Stepper({ status }) {
-  const currentIndex = STAGES.findIndex((s) => s.key === status);
-  return (
-    <div className="flex items-center gap-0">
-      {STAGES.map((stage, i) => {
-        const isDone = currentIndex > i || status === "done";
-        const isActive = currentIndex === i && status !== "done";
-        return (
-          <div key={stage.key} className="flex items-center">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  isDone || isActive ? "bg-brand" : "bg-rule"
-                } ${isActive ? "animate-pulse" : ""}`}
-              />
-              <span
-                className={`text-sm font-mono ${
-                  isDone || isActive ? "text-ink" : "text-ink-muted"
-                }`}
-              >
-                {stage.label}
-              </span>
-            </div>
-            {i < STAGES.length - 1 && (
-              <div className={`w-8 h-px mx-3 ${currentIndex > i ? "bg-brand" : "bg-rule"}`} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function SeverityMark({ severity }) {
   const styles = {
@@ -98,7 +22,7 @@ function SeverityMark({ severity }) {
   );
 }
 
-function HeroMetrics({ docCount, totalReviewed, highCount, mediumCount }) {
+function HeroMetrics({ docCount, totalReviewed, highCount, mediumCount, hasFilings }) {
   return (
     <div className="grid grid-cols-3 divide-x divide-rule border border-rule bg-white mb-6">
       <div className="px-6 py-5">
@@ -107,7 +31,9 @@ function HeroMetrics({ docCount, totalReviewed, highCount, mediumCount }) {
       </div>
       <div className="px-6 py-5">
         <div className="font-mono text-3xl text-ink">₹{formatCurrency(totalReviewed)}</div>
-        <div className="text-xs text-ink-muted mt-1">total value reviewed</div>
+        <div className="text-xs text-ink-muted mt-1">
+          total invoice/contract value{hasFilings ? " (excludes filings)" : ""}
+        </div>
       </div>
       <div className="px-6 py-5">
         <div className="font-mono text-3xl">
@@ -123,10 +49,17 @@ function HeroMetrics({ docCount, totalReviewed, highCount, mediumCount }) {
 
 function ReportDocument({ report, jobId }) {
   const { docCount, summaryRows, findings, highCount, mediumCount, totalReviewed } = parseReport(report);
+  const hasFilings = summaryRows.some((r) => r.isFiling);
 
   return (
     <>
-      <HeroMetrics docCount={docCount} totalReviewed={totalReviewed} highCount={highCount} mediumCount={mediumCount} />
+      <HeroMetrics
+        docCount={docCount}
+        totalReviewed={totalReviewed}
+        highCount={highCount}
+        mediumCount={mediumCount}
+        hasFilings={hasFilings}
+      />
 
       <div className="border border-rule border-t-4 border-t-brand bg-white">
         <div className="px-8 py-6 border-b border-rule">
@@ -151,7 +84,9 @@ function ReportDocument({ report, jobId }) {
                 <tr key={i} className="border-b border-rule last:border-0 hover:bg-paper/60">
                   <td className="py-2.5 pr-4 text-ink">{row.filename}</td>
                   <td className="py-2.5 pr-4 text-ink-muted">{row.vendor}</td>
-                  <td className="py-2.5 text-right text-ink tabular-nums">₹{formatCurrency(row.total)}</td>
+                  <td className="py-2.5 text-right text-ink tabular-nums">
+                    ₹{formatCurrency(row.total)}{row.isFiling ? " (Assets)" : ""}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -264,8 +199,6 @@ export default function App() {
     }
   };
 
-  const isProcessing = status && status !== "done" && status !== "error";
-
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-3xl mx-auto px-6 py-14">
@@ -345,7 +278,30 @@ export default function App() {
 
         {jobId && (
           <section className="mb-8">
-            <Stepper status={status} />
+            <div className="flex items-center gap-0">
+              {STAGES.map((stage, i) => {
+                const currentIndex = STAGES.findIndex((s) => s.key === status);
+                const isDone = currentIndex > i || status === "done";
+                const isActive = currentIndex === i && status !== "done";
+                return (
+                  <div key={stage.key} className="flex items-center">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          isDone || isActive ? "bg-brand" : "bg-rule"
+                        } ${isActive ? "animate-pulse" : ""}`}
+                      />
+                      <span className={`text-sm font-mono ${isDone || isActive ? "text-ink" : "text-ink-muted"}`}>
+                        {stage.label}
+                      </span>
+                    </div>
+                    {i < STAGES.length - 1 && (
+                      <div className={`w-8 h-px mx-3 ${currentIndex > i ? "bg-brand" : "bg-rule"}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </section>
         )}
 

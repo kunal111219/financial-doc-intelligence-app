@@ -5,10 +5,12 @@
         "fastapi",
         "langchain",
         "langgraph",
+        "metadatas",
         "Ollama",
         "openpyxl",
         "pdfplumber",
         "pytesseract",
+        "pytest",
         "uvicorn"
     ]
 }

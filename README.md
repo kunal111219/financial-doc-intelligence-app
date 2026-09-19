@@ -67,6 +67,8 @@ backend/
 ├── app.py                     FastAPI backend — upload / status / report
 ├── job_store.py                In-memory job tracking for API-driven runs
 ├── diagnose_10k_extraction.py  One-off diagnostic — raw model output before parsing
+├── tests/
+│   └── test_cross_check_agent.py  18 pytest tests — every cross-check rule
 ├── retrieval/
 │   ├── loader.py               PDF text extraction (+ OCR fallback)
 │   ├── chunker.py               Overlapping character-window chunking
@@ -86,6 +88,8 @@ frontend/
 ├── vite.config.js                Vite + Tailwind v4 plugin
 └── src/
     ├── App.jsx                   Upload UI, status polling, ledger-style report
+    ├── reportParser.js           Extracted, unit-tested report-parsing logic
+    ├── reportParser.test.js      10 Vitest tests — including 2 real regressions caught
     └── index.css                  Tailwind v4 theme tokens (@theme block)
 ```
 
@@ -260,6 +264,43 @@ similar-magnitude amounts would not conform even for genuine data. Validated
 result: chi-square = 6.31, p = 0.61, correctly concludes conformance for
 data generated to conform.
 
+## Testing
+
+Manual validation throughout this project (planted-issue documents, checked
+by eye against `run_pipeline.py` output) has now been turned into automated
+regression suites on both ends:
+
+- **Backend** (`backend/tests/test_cross_check_agent.py`, pytest) — 18 tests
+  covering every cross-check rule: math reconciliation, type-scoped
+  identifier checks, round-number scoping (invoice-only), date logic,
+  duplicate detection, sequence-gap threshold tuning, vendor-vs-contract
+  checks, and the financial-filing accounting identity (using Apple's real,
+  independently verified figures as a fixture).
+- **Frontend** (`frontend/src/reportParser.test.js`, Vitest) — 10 tests
+  covering the report-parsing logic, including two real regressions found
+  and fixed this session: `parseFloat` silently truncating comma-formatted
+  totals (`"100,300.00"` → `100`) once the backend started comma-formatting
+  amounts, and a mixed invoice/filing batch producing a meaningless blended
+  "total value reviewed" figure by summing invoice thousands together with
+  a filing's total assets in the billions. The parsing logic was extracted
+  into `reportParser.js` specifically so it could be unit tested directly
+  rather than only exercised through full component rendering. **The suite
+  caught a third real bug on its first run against a different machine**:
+  `toLocaleString(undefined, ...)` uses the runtime's system locale, so the
+  same number formatted as `100,300.00` (Western grouping) in one
+  environment and `1,00,300.00` (Indian lakh/crore grouping) in another —
+  fixed by pinning the locale explicitly to `"en-US"` rather than leaving
+  a financial report's number formatting dependent on the viewer's OS
+  settings.
+
+```bash
+# Backend
+cd backend && python -m pytest tests/ -v
+
+# Frontend
+cd frontend && npm install -D vitest && npx vitest run
+```
+
 ## Roadmap
 
 - [x] Phase 0 — Environment setup
@@ -289,5 +330,7 @@ gating). Validated the financial-statement check against real, independently
 verified SEC filing data, correctly diagnosing a false positive as an
 extraction error rather than a logic flaw. Diagnosed and fixed a retrieval
 ranking failure and a two-layer non-determinism issue spanning LLM decoding
-and retrieval ordering. Delivered via a FastAPI backend with per-job isolated
+and retrieval ordering. Backed by a 28-test automated regression suite
+(pytest + Vitest) that caught two real bugs during development. Delivered
+via a FastAPI backend with per-job isolated
 indexing and a React frontend designed around the audit domain."*
