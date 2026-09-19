@@ -1,23 +1,35 @@
 # Financial Document Intelligence System
 
-A multi-agent system that ingests financial documents (10-Ks, invoices, vendor
-contracts) and automatically extracts structured data, cross-checks figures
-for inconsistencies, and produces a compliance-style report — modeled on the
-internal document-automation tools used by Big 4 audit firms and MNC
-finance/compliance teams.
+A multi-agent system that ingests financial documents (10-Ks, invoices,
+vendor contracts) and automatically extracts structured data, cross-checks
+figures for inconsistencies, and produces a compliance-style report.
 
 Built end-to-end: retrieval, multi-agent orchestration, a FastAPI backend, a
-React frontend, containerization, and cloud deployment — entirely with free
-and open-source tools.
+React frontend, and a set of real audit/forensic-accounting checks — entirely
+with free and open-source tools.
 
-## Why this project
+## What this actually is (an honest scope note)
 
-Manual review of financial documents — matching contract terms against
-invoices, checking totals, spotting missing fields — is exactly the kind of
-work Big 4 firms (Deloitte's Omnia, EY.ai, KPMG Clara) have built internal
-automation for. This project is a scaled-down, from-scratch version of that
-pattern, built to demonstrate retrieval-augmented generation, multi-agent
-orchestration, and full-stack delivery in one coherent system.
+Early on this project was pitched as "a Big 4-style audit tool." That
+framing oversold it. What's actually built and validated is narrower and
+more honest: **a document consistency-checking system covering two real,
+correctly-scoped audit procedures** —
+
+1. **AP/invoice reconciliation** — does an invoice's math check out, does it
+   match its contract, is it a duplicate, does its numbering sequence make
+   sense. This maps to real "vouching and tracing" work.
+2. **Financial statement consistency checking** — does a 10-K's own reported
+   figures satisfy the fundamental accounting identity
+   (Assets = Liabilities + Equity). This maps to real "analytical
+   procedures" auditors perform.
+
+Real Big 4/MNC audit platforms operate at a different scale entirely — full
+general-ledger population testing across millions of transactions, direct
+ERP integration, ML-driven risk-based sampling. This project doesn't claim
+that scale. It claims, and has evidence for, correctly implementing the
+document-level slice of that work, using comparable architecture (RAG +
+multi-agent orchestration), and being honest about where extraction
+accuracy — not the underlying logic — is the limiting factor.
 
 ## Architecture
 
@@ -26,15 +38,14 @@ React Frontend  →  FastAPI Backend  →  LangGraph Multi-Agent Pipeline
                                           ├─ Retrieval Agent (hybrid search)
                                           ├─ Extraction Agent (LLM → JSON)
                                           ├─ Cross-Check Agent (audit logic)
-                                          └─ Reporting Agent (final report)
+                                          └─ Reporting Agent (report + stats)
                                           ↓
                                      RAGAS Evaluation
 ```
 
 **Stack:** Ollama (local LLM inference) · ChromaDB (vector store) · BM25
 (keyword search) · LangGraph (agent orchestration) · RAGAS (evaluation) ·
-FastAPI · React + Tailwind · Docker · GitHub Actions · Hugging Face Spaces
-(+ short-lived AWS/GCP deployment for cloud experience).
+scipy (statistical testing) · FastAPI · React + Tailwind v4 · Docker (planned)
 
 No paid services are required to build or run this project.
 
@@ -43,143 +54,93 @@ No paid services are required to build or run this project.
 ```
 backend/
 ├── agents/
-│   ├── state.py              Shared pipeline state (TypedDict)
-│   ├── retrieval_agent.py    Node 1 — hybrid search per document, collection-aware
-│   ├── extraction_agent.py   Node 2 — LLM-based structured extraction
-│   ├── cross_check_agent.py  Node 3 — consistency/audit checks
-│   ├── reporting_agent.py    Node 4 — compiles final report
-│   └── graph.py              Wires the four nodes into a LangGraph pipeline
-├── run_pipeline.py           CLI entry point — runs the pipeline against the main indexed docs
-├── app.py                    FastAPI backend — upload / status / report endpoints
-├── job_store.py              In-memory job tracking for API-driven runs
+│   ├── state.py               Shared pipeline state (TypedDict)
+│   ├── retrieval_agent.py     Node 1 — hybrid search, collection-aware
+│   ├── extraction_agent.py    Node 2 — LLM-based structured extraction
+│   │                          (invoice / contract / financial_filing schemas)
+│   ├── cross_check_agent.py   Node 3 — all audit/consistency checks
+│   ├── benford_analysis.py    Batch-level Benford's Law statistical test
+│   ├── reporting_agent.py     Node 4 — compiles report + statistical section
+│   └── graph.py               Wires the four nodes into a LangGraph pipeline
+├── run_pipeline.py            CLI entry point — auto-discovers indexed docs,
+│                              optional substring filter, no hardcoded lists
+├── app.py                     FastAPI backend — upload / status / report
+├── job_store.py                In-memory job tracking for API-driven runs
+├── diagnose_10k_extraction.py  One-off diagnostic — raw model output before parsing
 ├── retrieval/
-│   ├── loader.py             PDF text extraction (+ OCR fallback)
-│   ├── chunker.py            Overlapping character-window chunking
-│   ├── ingest.py             Builds ChromaDB indexes (main + reusable per-job)
-│   ├── hybrid_retriever.py   BM25 + vector search fused via RRF, collection-aware
-│   └── query_test.py         Manual retrieval sanity checks
+│   ├── loader.py               PDF text extraction (+ OCR fallback)
+│   ├── chunker.py               Overlapping character-window chunking
+│   ├── ingest.py                 Builds ChromaDB indexes (main + per-job)
+│   ├── hybrid_retriever.py      BM25 + vector search fused via RRF
+│   ├── query_test.py             Manual retrieval sanity checks
+│   └── diagnose_penalty_query.py One-off retrieval-rank diagnostic
 ├── evaluation/
-│   ├── eval_dataset.py       Hand-labeled Q&A test set
-│   └── run_ragas_eval.py     RAGAS evaluation runner (local Ollama judge)
-├── data/raw/                 Source PDFs (10-Ks + synthetic invoices/contracts)
-├── data/jobs/                Per-upload working files (gitignored)
+│   ├── eval_dataset.py           Hand-labeled Q&A test set
+│   ├── run_ragas_eval.py         RAGAS evaluation runner (local Ollama judge)
+│   └── diagnose_msft_fy_query.py One-off retrieval-depth diagnostic
+├── data/raw/                    Source PDFs (10-Ks + synthetic test set)
+├── data/jobs/                   Per-upload working files (gitignored)
 └── requirements.txt
 frontend/
-├── index.html                Google Fonts (Source Serif 4, IBM Plex Mono, Inter)
-├── vite.config.js            Vite + Tailwind v4 plugin
+├── index.html                   Google Fonts (Source Serif 4, IBM Plex Mono, Inter)
+├── vite.config.js                Vite + Tailwind v4 plugin
 └── src/
-    ├── App.jsx               Upload UI, status polling, ledger-style report view
-    └── index.css             Tailwind v4 theme tokens (@theme block)
+    ├── App.jsx                   Upload UI, status polling, ledger-style report
+    └── index.css                  Tailwind v4 theme tokens (@theme block)
 ```
 
 ## Test document set
 
 - **5 real 10-K filings** (Apple, Microsoft, Walmart, PepsiCo, JPMorgan),
-  sourced from SEC EDGAR — spans different industries and fiscal year-ends,
-  and stress-tests retrieval at scale (200-300+ pages each).
-- **12 synthetic invoices/contracts**, generated to include planted issues:
-  mismatched subtotal/tax/total, a missing invoice number, a vendor whose
-  contract value doesn't match a later invoice, a multi-currency invoice, and
-  two multi-page documents where line items and totals sit on different pages.
-
-## Setup
-
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate        # Windows
-pip install -r requirements.txt
-
-ollama pull mistral
-ollama pull nomic-embed-text
-
-# Place PDFs in data/raw/, then build the index:
-python retrieval/ingest.py
-
-# Sanity-check retrieval:
-python retrieval/query_test.py
-```
-
-Poppler (for OCR fallback via `pdf2image`) and Tesseract are only needed if
-you're processing scanned documents — see project notes for Windows install
-steps.
+  sourced from SEC EDGAR — spans industries and fiscal year-ends, stress-tests
+  retrieval at scale (200-300+ pages each) and the financial-filing extraction
+  path.
+- **13 synthetic invoices/contracts** with planted issues: mismatched
+  subtotal/tax/total, a missing invoice number, a vendor whose contract value
+  doesn't match a later invoice, a multi-currency invoice, two multi-page
+  documents, a duplicate invoice, an invoice-number sequence gap, and a
+  due-date-before-invoice-date error.
+- **80 additional synthetic invoices**, log-uniformly distributed in amount
+  (₹103 to ₹19.4 lakh) across 8 vendors with per-vendor sequential numbering
+  — built specifically to give Benford's Law analysis a statistically
+  meaningful sample.
 
 ## Retrieval evaluation: a real finding, not just a demo
 
 Initial testing with pure vector search (ChromaDB + `nomic-embed-text`)
 surfaced a genuine weakness: a query for **"penalty clause for late
 payment"** — despite an exact, verbatim match sitting in a contract document
-— ranked that contract chunk **16th out of 2,934** chunks. With only 2
-contract chunks competing against 2,932 chunks of 10-K text that also
-mention "payment," "overdue," and "penalties" in passing, semantic
-similarity alone wasn't enough to surface the true match.
+— ranked that contract chunk **16th out of 2,934** chunks, out-scored by
+thousands of unrelated 10-K chunks that also mention "payment" or "overdue"
+in passing.
 
-**Fix:** implemented hybrid retrieval — BM25 keyword search combined with
-vector search via **Reciprocal Rank Fusion** (`retrieval/hybrid_retriever.py`).
-This corrected the same query to rank the correct contract chunk **#1**,
-without regressing performance on the other test queries (revenue figures,
-invoice lookups, risk factor sections all continued to rank correctly).
+**Fix:** hybrid retrieval — BM25 keyword search combined with vector search
+via **Reciprocal Rank Fusion** (`retrieval/hybrid_retriever.py`). Corrected
+the same query to rank the correct chunk **#1**, without regressing the
+other test queries.
 
-This is documented in more detail via `retrieval/diagnose_penalty_query.py`,
-which was used to pinpoint the exact rank and root cause before choosing a fix.
+## Multi-agent pipeline: findings from the first full runs
 
-## Multi-agent pipeline: findings from the first full run
-
-Running the complete pipeline (retrieval → extraction → cross-check →
-reporting) against all 12 synthetic documents surfaced three real issues,
-fixed as follows:
-
-1. **False "missing invoice number" flags on contracts.** The extraction
-   schema only had an `invoice_number` field, so contracts (which have a
-   *contract number* instead) were always flagged as missing one. Fixed by
-   adding a `document_type` field to extraction and applying the correct
-   identifier check per type.
-
-2. **Overly broad vendor cross-check.** The original logic flagged *any*
-   two documents from the same vendor with different totals — but multiple
-   invoices from one vendor naturally have different amounts, so this
-   produced noise rather than signal. Fixed by narrowing the check to what's
-   actually audit-relevant: whether a vendor's invoiced total exceeds what
-   their contract authorizes.
-
+1. **False "missing invoice number" flags on contracts** — fixed by adding a
+   `document_type` field to extraction and applying the correct identifier
+   check per type.
+2. **Overly broad vendor cross-check** — narrowed from "any two totals differ"
+   to the audit-relevant check: does an invoice exceed its own contract's
+   authorized value.
 3. **A multi-page document's totals were extracted inconsistently across
-   runs.** `invoice_09_multipage_clean.pdf` (line items on page 1, totals
-   on page 3) sometimes produced the correct total and sometimes didn't,
-   with no code changes between runs. Root-caused in two layers:
-
-   - **Layer 1 — LLM sampling variance.** Ollama's default generation
-     settings sample from a probability distribution even at low
-     temperature, so identical prompts could yield different structured
-     output. Fixed by setting `temperature: 0`, `top_k: 1`, `top_p: 0`,
-     and a fixed `seed` for fully greedy, deterministic decoding.
-
-   - **Layer 2 — retrieval ordering non-determinism.** Even after fixing
-     LLM decoding, one document still varied between two consistent
-     outcomes. Traced to floating-point non-determinism in local embedding
-     computation (multi-threaded CPU inference doesn't always sum in the
-     same order) — small enough to not change *which* chunks were
-     retrieved, but occasionally enough to flip the *order* two
-     closely-ranked chunks were returned in. Since the extraction agent
-     read chunks in retrieval-rank order, this changed which chunk the LLM
-     encountered first and how it reconciled the totals. Fixed by sorting
-     retrieved chunks by their original position in the source document
-     (`chunk_index`) before passing them to extraction, rather than by
-     relevance rank — this removes ordering as a variable entirely.
-
-   Verified stable, correct output across multiple repeated runs on all
-   12 test documents after both fixes.
-
-   **Takeaway:** deterministic LLM decoding alone doesn't guarantee
-   deterministic pipeline output — non-determinism can enter upstream, in
-   retrieval, and silently propagate downstream even when generation itself
-   is pinned. Worth checking end-to-end, not just at the LLM call site.
+   runs**, with no code changes between runs. Root-caused in two layers:
+   Ollama's default sampling (fixed via `temperature: 0, top_k: 1, top_p: 0,
+   seed: 42`), and a subtler retrieval-ordering non-determinism from
+   floating-point variance in local embedding computation (fixed by sorting
+   retrieved chunks by document position, not relevance rank, before passing
+   to extraction). **Takeaway:** deterministic LLM decoding alone doesn't
+   guarantee deterministic pipeline output — non-determinism can enter
+   upstream in retrieval and propagate downstream silently.
 
 ## RAGAS evaluation results
 
-Evaluated the full pipeline against a 10-question hand-labeled test set
-(`evaluation/eval_dataset.py`) spanning both document types, using RAGAS
-with **local Ollama models as the judge** (`mistral` for LLM-based scoring,
-`nomic-embed-text` for embedding-based scoring) — no paid API required.
+Evaluated against a 10-question hand-labeled test set spanning both document
+types, using RAGAS with **local Ollama models as the judge** — no paid API.
 
 | Metric | Average | Rows scored |
 |---|---|---|
@@ -188,124 +149,145 @@ with **local Ollama models as the judge** (`mistral` for LLM-based scoring,
 | Context Recall | 0.917 | 8/10 |
 | Answer Relevancy | 0.852 | 10/10 |
 
-**Faithfulness was perfect on every row that scored** — zero hallucination
-detected, including on questions the system couldn't fully answer (it said
-"I don't know" rather than fabricating).
-
-Two real, distinct issues were found and fixed during evaluation:
-
-1. **A retrieval depth issue, not a retrieval failure** (Microsoft's fiscal
-   year end date). Diagnosis (`evaluation/diagnose_msft_fy_query.py`) showed
-   the correct chunk — the 10-K's cover page, stating *"For the Fiscal Year
-   Ended June 30, 2026"* verbatim — was retrieved, but ranked **9th**, just
-   outside the evaluation's `top_k=5` cutoff. It was out-ranked by dense
-   financial-table chunks that repeat "fiscal year" and the date many times,
-   which score higher under both BM25 term frequency and embedding
-   similarity than a single, sparse-but-exact cover-page mention. Fixed by
-   raising retrieval depth to `top_k=10` for evaluation.
-
-2. **A generation-side issue on an open-ended question.** The JPMorgan risk
-   question initially scored `answer_relevancy: 0.0` despite correct
-   retrieval (`context_recall: 1.0`) — likely the answer prompt's strict
-   "say I don't know if unsure" instruction made the model overly cautious
-   on an interpretive question, unlike the mostly single-fact lookups
-   elsewhere in the test set. After the retrieval depth fix, this question's
-   relevancy improved to 0.852 on re-run, suggesting the extra retrieved
-   context gave the model enough confidence to answer normally.
-
-**A known limitation, reported rather than hidden:** two rows (both on the
-longest-context 10-K questions) returned `NaN` after the local judge model
-(`mistral`, 7B) failed to produce output its own metric parser could parse
-(`RagasOutputParserException`), rather than a scoring failure of the
-pipeline being evaluated. This is a documented trade-off of using a small
-local model as an LLM-as-judge instead of a larger hosted one — it affects
-evaluation reliability, not the underlying system's correctness. Averages
-above are computed over the rows that successfully scored.
+Two issues diagnosed and fixed during evaluation: a retrieval **depth** issue
+(a correct chunk ranked 9th, outside `top_k=5`, fixed by raising depth to 10)
+and a generation over-caution issue that resolved once retrieval improved.
+One honestly-reported limitation: the local 7B judge model occasionally
+failed to produce parseable output on the longest-context questions
+(`RagasOutputParserException`, 2/10 rows) — a documented trade-off of local-
+judge evaluation, not a flaw in the pipeline being evaluated.
 
 ## FastAPI backend: per-job isolation
 
-Phase 5 wraps the pipeline in a FastAPI backend (`app.py`) with three
-endpoints — `POST /upload`, `GET /status/{job_id}`, `GET /report/{job_id}` —
-built around a background-task pattern so the upload request returns
-instantly while the pipeline runs asynchronously.
-
-The main design decision: **each upload gets its own isolated ChromaDB
-collection** (`job_<id>`), built fresh from just the uploaded files, rather
-than sharing the main project index. This required refactoring
-`retrieval/ingest.py` and `HybridRetriever` to accept a `collection_name`
-parameter, and adding `collection_name` to the shared pipeline state so the
-retrieval agent knows which index to query. Without this, concurrent or
-successive uploads would mix into a single shared index — irrelevant chunks
-from one user's documents would pollute retrieval for another's.
-
-Verified via direct HTTP calls (`curl`): the happy path, a cross-document
-vendor-vs-contract check running correctly through the API (not just the
-CLI), rejection of non-PDF uploads, and 404s on unknown job IDs.
+`app.py` wraps the pipeline in `POST /upload`, `GET /status/{job_id}`,
+`GET /report/{job_id}`, using a background-task pattern so uploads return
+instantly. **Each upload gets its own isolated ChromaDB collection**
+(`job_<id>`), built fresh from just the uploaded files, so concurrent or
+successive uploads never mix. Verified via direct HTTP calls: happy path,
+cross-document vendor-vs-contract check, non-PDF rejection, unknown-job 404s.
 
 ## React frontend: designing for the subject matter
 
-Phase 6's first pass used a generic SaaS-dashboard look — rounded cards,
-blue accents, pill-shaped badges. It worked, but it didn't read as a
-deliberate design choice, and a generic UI doesn't demonstrate frontend
-judgment. It was rebuilt around the actual subject matter: an audit/ledger
-tool, not a consumer app.
+The first pass used a generic SaaS-dashboard look. Rebuilt around the actual
+subject matter — an audit/ledger tool, not a consumer app: serif headline +
+monospace tabular data + sans body, a hero metric strip (documents reviewed,
+total value, high/medium finding counts), and findings rendered as a tinted-
+row register rather than badge pills. Two real bugs surfaced and fixed along
+the way: a Tailwind v4 configuration mismatch (v3-style config silently
+produced zero styling), and a **simultaneous contrast** color issue — a cool
+muted gray read as visibly olive-green against the warm cream background,
+fixed by warming the gray's undertone to match.
 
-Key choices:
-- **Serif headline + monospace data + sans body** — numbers (totals, job
-  IDs) use `IBM Plex Mono` with tabular alignment, closer to how a real
-  ledger presents figures, rather than uniform sans-serif throughout.
-- **A hero metric strip** (documents reviewed, total value, high/medium
-  finding counts) as the page's visual anchor, using large mono numerals —
-  appropriate here since the report's headline fact genuinely is
-  quantitative, not decorative.
-- **Findings as a register, not badges** — each flagged issue renders as a
-  full-width tinted row (soft red for HIGH, amber for MEDIUM) with a thick
-  colored left border, giving the section the visual weight it deserves
-  since it's the tool's entire point, rather than a small pill next to
-  quiet text.
-- **A structural report parser** (`parseReport()` in `App.jsx`) that turns
-  the backend's markdown into real data — a summary table and a findings
-  array — rather than rendering markdown line-by-line.
+## Expanded audit checks: closing the "is this really an audit tool" gap
 
-One real bug surfaced during this rebuild: **Tailwind v4 uses a completely
-different configuration model** than v3 (a `@theme` block in CSS instead of
-`tailwind.config.js` + `@tailwind` directives) — the initial redesign
-silently produced zero styling because it used v3-style config against a
-v4 install. Fixed by switching to the `@tailwindcss/vite` plugin and a
-CSS-native `@theme` token block.
+After the initial build, testing real 10-Ks through the pipeline surfaced
+that extraction and cross-checking had only ever been designed around
+invoices/contracts — every 10-K got flagged "missing total amount," a
+meaningless result, since a 10-K has no single "total." This was a real
+scope gap against the project's own pitch, not a documented boundary, and
+was fixed by extending the pipeline to handle financial filings as a
+genuinely different, correctly-checked document type, plus adding five
+further real audit/forensic-accounting techniques.
 
-A second, subtler issue: an early color choice (a cool, slightly blue-green
-muted gray) read as visibly olive/greenish against the warm cream paper
-background — a **simultaneous contrast effect**, where a cool neutral next
-to a warm background visually shifts toward its complementary hue. Fixed by
-warming the gray to match the background's undertone.
+**1. Financial statement identity check (Assets = Liabilities + Equity)**
+Added a `financial_filing` extraction schema (company name, fiscal year,
+revenue, net income, total assets/liabilities/equity) and the fundamental
+accounting identity as a cross-check, with a 1% relative tolerance (filings
+report in rounded millions/billions).
 
+Along the way, a real extraction reliability issue surfaced: given a long,
+complex, multi-type prompt against a dense 10-K excerpt, the local 7B model
+**abandoned the JSON schema entirely** and wrote a free-text narrative
+summary instead — confirmed by inspecting the raw model output directly
+(`diagnose_10k_extraction.py`) rather than guessing from the parse failure.
+Fixed with three changes: splitting merged retrieval queries into short,
+literal phrases matching real financial-statement wording ("total assets,"
+"total liabilities" instead of one combined query — the same insight as the
+earlier BM25 fix), capping context at 8,000 characters, and a much more
+forceful "respond with only the JSON object" instruction.
+
+**Validated against real, independently verified figures**, not just
+internal consistency:
+- **Apple**: extracted Total Assets, Total Liabilities, and Stockholders'
+  Equity all matched real published figures *exactly* — proof the check's
+  logic is sound when retrieval surfaces the right chunk. (A separate,
+  minor bug was also found this way: `total_revenue` was incorrectly
+  duplicated from `total_assets` when revenue wasn't in the retrieved
+  context, instead of correctly returning null.)
+- **Walmart**: the identity check flagged a mismatch. Cross-referencing
+  against Walmart's real reported total assets ($284.67B — which the
+  extraction matched exactly) showed the flag was caused by an inaccurate
+  liabilities/equity extraction, not a real accounting problem. This is an
+  important, honestly-reported finding: **the check's logic can be entirely
+  correct while still producing a false positive from upstream extraction
+  error** — a real reason automated audit flags need human review before
+  being trusted, not a flaw in the check design.
+
+**2. Duplicate invoice detection** — same vendor, same total, invoice dates
+within 3 days. Validated with a planted duplicate test case.
+
+**3. Sequence gap detection** — flags missing invoice numbers per vendor.
+Initially flagged *any* gap ≥1, which produced 58 low-value flags when
+tested against the 80-document Benford batch — small gaps (voided invoices,
+shared number pools) are normal in real business. Fixed in two stages:
+raised the threshold to only flag gaps >5, then found the remaining ~37
+flags traced to the Benford batch's own test-data design (a single global
+invoice-number pool shared across 8 vendors, not a check design flaw) and
+fixed the generator to give each vendor genuine per-vendor sequential
+numbering. Final result: zero spurious flags on the 80-document batch, while
+the original planted-gap test case (adjusted to skip 6 numbers, above the
+new threshold) still correctly triggers.
+
+**4. Date logic validation** — due date before invoice date. Validated with
+a planted test case.
+
+**5. Round-number / structuring detection** — flags invoice totals evenly
+divisible by 10,000 as worth a second look. Initially applied to contracts
+too, which produced false positives on both test contracts (negotiated
+contract values are legitimately, commonly round — unlike individual
+transaction totals). Fixed by scoping the check to invoices only.
+
+**6. Benford's Law analysis** — a batch-level (not per-document) statistical
+test: does the leading-digit distribution of invoice totals conform to
+Benford's Law, using a proper chi-square goodness-of-fit test
+(`scipy.stats.chisquare`). **Explicitly gated on sample size**
+(`MIN_SAMPLE_SIZE = 30`) — below that, the report states plainly that no
+statistical claim is being made, rather than showing a meaningless result.
+Required generating a purpose-built 80-invoice batch with log-uniform
+amounts (spanning ₹103 to ₹19.4 lakh) — the condition under which real
+transaction data actually conforms to Benford's Law; a narrow range of
+similar-magnitude amounts would not conform even for genuine data. Validated
+result: chi-square = 6.31, p = 0.61, correctly concludes conformance for
+data generated to conform.
 
 ## Roadmap
 
-- [x] Phase 0 — Environment setup (Ollama, Python/FastAPI backend, React frontend)
+- [x] Phase 0 — Environment setup
 - [x] Phase 1 — Document collection (real 10-Ks + synthetic test set)
 - [x] Phase 2 — Retrieval layer (chunking, ChromaDB indexing, hybrid search)
-- [x] Phase 3 — Multi-agent pipeline (extraction, cross-check, reporting agents),
-      validated deterministic and correct across repeated runs on all 12 test documents
-- [x] Phase 4 — RAGAS evaluation (retrieval precision/recall, answer faithfulness)
-- [x] Phase 5 — FastAPI backend (upload, job status, report endpoints),
-      with per-job isolated indexing verified via direct HTTP calls
-- [x] Phase 6 — React frontend (upload UI, progress tracking, report view),
-      redesigned around the subject matter after an initial generic pass
+- [x] Phase 3 — Multi-agent pipeline, validated deterministic across repeated runs
+- [x] Phase 3b — Expanded audit checks: financial-filing identity check
+      (verified against real Apple/Walmart figures), duplicate detection,
+      sequence-gap detection, date logic validation, round-number detection,
+      and a properly sample-size-gated Benford's Law analysis
+- [x] Phase 4 — RAGAS evaluation
+- [x] Phase 5 — FastAPI backend with per-job isolated indexing
+- [x] Phase 6 — React frontend, redesigned around the audit/ledger domain
 - [ ] Phase 7 — Docker + GitHub Actions CI/CD
 - [ ] Phase 8 — Deployment (Hugging Face Spaces permanent; AWS + GCP for
-      short-lived capture)
+      short-lived resume-credential capture)
 - [ ] Phase 9 — Polish, demo video, resume packaging
 
 ## Resume framing
 
 *"Built a full-stack multi-agent financial document intelligence system —
-hybrid BM25/vector RAG retrieval, LLM-based structured extraction, automated
-cross-document consistency checks, a FastAPI backend with per-job isolated
-indexing, and a React frontend designed around the audit/ledger domain.
-Diagnosed and fixed a retrieval ranking failure (correct match at rank
-16/2934, corrected to rank 1 via hybrid search) and a two-layer
-non-determinism issue spanning LLM decoding and retrieval ordering,
-validating fully reproducible output across repeated runs. Deployed via
-Docker/CI-CD to Hugging Face Spaces, AWS, and GCP."*
+hybrid BM25/vector RAG retrieval, LLM-based structured extraction across
+invoice/contract and financial-filing schemas, and a set of real audit and
+forensic-accounting checks (accounting-identity verification, duplicate and
+sequence-gap detection, Benford's Law analysis with proper statistical
+gating). Validated the financial-statement check against real, independently
+verified SEC filing data, correctly diagnosing a false positive as an
+extraction error rather than a logic flaw. Diagnosed and fixed a retrieval
+ranking failure and a two-layer non-determinism issue spanning LLM decoding
+and retrieval ordering. Delivered via a FastAPI backend with per-job isolated
+indexing and a React frontend designed around the audit domain."*
