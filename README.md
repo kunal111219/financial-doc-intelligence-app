@@ -311,6 +311,38 @@ cd backend && python -m pytest tests/ -v
 cd frontend && npm install -D vitest && npx vitest run
 ```
 
+## Containerization and CI
+
+Full stack containerized with Docker Compose — Ollama, FastAPI backend, and
+React frontend as three services, communicating over the Compose network
+(the backend connects to `http://ollama:11434` rather than assuming a
+host-installed Ollama). No host dependencies beyond Docker itself.
+
+```bash
+docker compose build
+docker compose up -d
+docker compose exec ollama ollama pull mistral
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+Verified end-to-end against the actual running containers (not just that
+the images build): backend health check, both models present inside the
+Ollama container, and a full document upload through the containerized
+frontend correctly reaching the containerized backend and Ollama, producing
+the same correct extraction and findings as the non-containerized version.
+
+Along the way, `ruff check` — added to CI but not previously run against
+the codebase — surfaced 15 real lint issues (import ordering, deprecated
+`typing.List`/`Dict` syntax, a combinable nested `if`, and a more idiomatic
+`itertools.pairwise` usage). Fixed rather than suppressed; one rule
+(`DTZ` — timezone-aware datetimes) was deliberately excluded via
+`ruff.toml` with documented reasoning, since invoice dates are plain
+calendar dates with no timezone concept.
+
+**GitHub Actions CI** (`.github/workflows/ci.yml`) runs on every push:
+pytest + ruff for the backend, Vitest + eslint for the frontend, and a
+Docker build check for both images.
+
 ## Roadmap
 
 - [x] Phase 0 — Environment setup
@@ -324,7 +356,8 @@ cd frontend && npm install -D vitest && npx vitest run
 - [x] Phase 4 — RAGAS evaluation
 - [x] Phase 5 — FastAPI backend with per-job isolated indexing
 - [x] Phase 6 — React frontend, redesigned around the audit/ledger domain
-- [ ] Phase 7 — Docker + GitHub Actions CI/CD
+- [x] Phase 7 — Docker + GitHub Actions CI/CD, verified end-to-end against
+      running containers (not just successful builds)
 - [ ] Phase 8 — Deployment (Hugging Face Spaces permanent; AWS + GCP for
       short-lived resume-credential capture)
 - [ ] Phase 9 — Polish, demo video, resume packaging

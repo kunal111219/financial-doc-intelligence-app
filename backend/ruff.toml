@@ -1,0 +1,6 @@
+[lint]
+# DTZ rules require timezone-aware datetimes everywhere. This project only
+# ever parses plain calendar dates from invoices/contracts (e.g. "2026-06-01")
+# — there is no timestamp or timezone concept in that domain, so forcing
+# timezone-awareness here would be inappropriate rather than a real fix.
+ignore = ["DTZ"]

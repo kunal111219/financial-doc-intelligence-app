@@ -1,7 +1,11 @@
 import { useState, useRef, useCallback } from "react";
 import { parseReport, formatCurrency } from "./reportParser";
 
-const API_BASE = "http://localhost:8000";
+// Configurable via a build-time env var so the same image works locally,
+// in Docker Compose, and once deployed (Phase 8) without a code change —
+// hardcoding localhost:8000 would silently break in every environment
+// other than local dev with that exact port mapping.
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 const STAGES = [
   { key: "indexing", label: "Indexing" },

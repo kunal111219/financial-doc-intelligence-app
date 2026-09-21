@@ -1,0 +1,48 @@
+# Full local stack: Ollama (model inference), the FastAPI backend, and the
+# React frontend. Running `docker compose up` brings up everything with no
+# host-installed Ollama required — the backend connects to the ollama
+# service by its compose network name (see OLLAMA_HOST in backend/Dockerfile).
+#
+# First run: models aren't bundled in the ollama image (multi-GB downloads
+# don't belong in a container image) — pull them into the running container
+# once, after `docker compose up -d`:
+#   docker compose exec ollama ollama pull mistral
+#   docker compose exec ollama ollama pull nomic-embed-text
+# The named volume below persists them, so this is a one-time step, not
+# a re-download on every restart.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - ./backend/data:/app/data
+      - chroma_data:/app/chroma_store
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_BASE=http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  ollama_data:
+  chroma_data:

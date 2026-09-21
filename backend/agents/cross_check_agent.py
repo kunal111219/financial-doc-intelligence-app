@@ -20,8 +20,9 @@ Additional cross-document checks:
 - Round-number / structuring pattern flags
 """
 
-from datetime import datetime, timedelta
 import re
+from datetime import datetime
+from itertools import pairwise
 
 from agents.state import PipelineState
 
@@ -73,13 +74,12 @@ def cross_check_node(state: PipelineState) -> PipelineState:
         dates = record.get("dates") or {}
 
         if doc_type in ("invoice", "contract"):
-            if subtotal is not None and total is not None:
-                if abs((subtotal + tax) - total) > MISMATCH_TOLERANCE:
-                    flags.append({
-                        "filename": filename,
-                        "issue": f"Subtotal + tax ({subtotal + tax:.2f}) does not match total ({total:.2f})",
-                        "severity": "high",
-                    })
+            if subtotal is not None and total is not None and abs((subtotal + tax) - total) > MISMATCH_TOLERANCE:
+                flags.append({
+                    "filename": filename,
+                    "issue": f"Subtotal + tax ({subtotal + tax:.2f}) does not match total ({total:.2f})",
+                    "severity": "high",
+                })
 
             if doc_type == "invoice" and not record.get("invoice_number"):
                 flags.append({"filename": filename, "issue": "Missing invoice number", "severity": "medium"})
@@ -89,10 +89,6 @@ def cross_check_node(state: PipelineState) -> PipelineState:
             if total is None:
                 flags.append({"filename": filename, "issue": "Missing total amount", "severity": "high"})
 
-            # Round-number / structuring flag: invoice-only, since negotiated
-            # contract values are commonly and legitimately round numbers —
-            # applying this to contracts produced false positives on both
-            # test contracts, which have deliberately round agreed values.
             if doc_type == "invoice" and total is not None and total >= 10000 and total % 10000 == 0:
                 flags.append({
                     "filename": filename,
@@ -100,7 +96,6 @@ def cross_check_node(state: PipelineState) -> PipelineState:
                     "severity": "low",
                 })
 
-            # Date logic: due date before invoice date, or invoice dated in the future
             invoice_date = _parse_date(dates.get("invoice_date"))
             due_date = _parse_date(dates.get("due_date"))
             if invoice_date and due_date and due_date < invoice_date:
@@ -137,11 +132,8 @@ def cross_check_node(state: PipelineState) -> PipelineState:
                         "severity": "medium",
                     })
 
-    # --- Cross-document checks (invoices/contracts only) ---
     invoices = [r for r in state["extracted"] if r.get("document_type") == "invoice"]
 
-    # Duplicate invoice detection: same vendor, same total, dates within 3 days —
-    # a classic real AP control test for accidental or fraudulent double payment.
     for i, a in enumerate(invoices):
         for b in invoices[i + 1:]:
             if a["filename"] == b["filename"]:
@@ -162,7 +154,6 @@ def cross_check_node(state: PipelineState) -> PipelineState:
                             "severity": "high",
                         })
 
-    # Sequential invoice number gap detection per vendor
     by_vendor_seq: dict[str, list] = {}
     for inv in invoices:
         parts = _invoice_number_parts(inv.get("invoice_number"))
@@ -179,7 +170,7 @@ def cross_check_node(state: PipelineState) -> PipelineState:
             if len(numbered) < 2:
                 continue
             numbered.sort()
-            for (n1, f1), (n2, f2) in zip(numbered, numbered[1:]):
+            for (n1, f1), (n2, f2) in pairwise(numbered):
                 if n2 - n1 > SEQUENCE_GAP_THRESHOLD:
                     flags.append({
                         "filename": f"{f1} / {f2}",
@@ -190,7 +181,6 @@ def cross_check_node(state: PipelineState) -> PipelineState:
                         "severity": "low",
                     })
 
-    # Vendor invoice total vs. contract value (existing check, unchanged)
     by_vendor: dict[str, list] = {}
     for record in state["extracted"]:
         vendor = record.get("vendor_name")

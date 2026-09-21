@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The cross_check_agent test suite has zero external dependencies
+      # (pure Python stdlib + relative imports) — it doesn't need Ollama,
+      # ChromaDB, or any of the heavier packages in requirements.txt, so CI
+      # installs only what the tests actually need rather than the full
+      # dependency set, keeping this job fast.
+      - name: Install test dependencies
+        run: pip install pytest ruff
+        working-directory: backend
+
+      - name: Lint (ruff)
+        run: ruff check .
+        working-directory: backend
+
+      - name: Run backend tests
+        run: python -m pytest tests/ -v
+        working-directory: backend
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Lint (eslint)
+        run: npx eslint .
+        working-directory: frontend
+        continue-on-error: true  # non-blocking for now — see README note on lint strictness
+
+      - name: Run frontend tests
+        run: npx vitest run
+        working-directory: frontend
+
+  docker-build-check:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Confirms both images actually build — this is NOT a deployment
+      # step (nothing is pushed to a registry). Ollama isn't started here
+      # since building the backend image doesn't require a running model
+      # server, only the image's own dependencies to install correctly.
+      - name: Build backend image
+        run: docker build -t financial-doc-backend:ci ./backend
+
+      - name: Build frontend image
+        run: docker build -t financial-doc-frontend:ci --build-arg VITE_API_BASE=http://localhost:8000 ./frontend
