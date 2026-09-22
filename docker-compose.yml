@@ -37,7 +37,11 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_API_BASE=http://localhost:8000
+        # Overridable via a .env file in the project root (docker compose
+        # reads it automatically) — needed when deploying to a real host,
+        # where the frontend must reach the backend via a public IP rather
+        # than localhost. Local runs need no .env file at all.
+        - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8000}
     ports:
       - "3000:80"
     depends_on:
