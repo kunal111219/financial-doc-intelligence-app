@@ -343,6 +343,77 @@ calendar dates with no timezone concept.
 pytest + ruff for the backend, Vitest + eslint for the frontend, and a
 Docker build check for both images.
 
+## Cloud deployment: evaluated, not pursued
+
+A short-lived cloud deployment (a cloud VM, verified live, then torn down)
+was planned as evidence of running this stack outside a local machine. It
+wasn't pursued, for specific, deliberate reasons worth documenting rather
+than glossing over — both major providers were tried, and both presented a
+real account-level barrier:
+
+Ollama running Mistral 7B needs realistically 8GB+ RAM — well beyond what
+either AWS's or GCP's actual free-tier instance sizes offer (~1GB on both),
+so a correctly-sized instance means genuine cost on either provider,
+independent of any "free tier" label.
+
+**GCP** offers new accounts a $300/90-day credit that would normally cover
+a short test at effectively zero net cost. This account specifically hit a
+₹3,000 upfront prepayment requirement before that credit would activate,
+and even after that resolved into a standard postpay arrangement, any usage
+would still eventually charge a small but real amount to a personal card —
+a deferred cost, not a free one.
+
+**AWS** was tried next, using its "Earn AWS credits" onboarding program
+(completing two qualifying activities — launching a free-tier-eligible
+instance and setting up an AWS Budgets alert — earned $40 in real credit,
+comfortably enough to cover a short test on a properly-sized instance).
+However, this account's plan tier (AWS's newer "Free Plan" vs. "Paid Plan"
+split for accounts created after mid-2025) blocked launching any instance
+type beyond the tiny free-tier sizes outright — regardless of available
+credit balance, upgrading to the Paid Plan first was required, which is an
+account-level commitment beyond a one-off short test.
+
+Given this project's consistent zero-cost constraint, the decision on both
+occasions was to close the billing relationship (GCP's billing account
+closed; AWS's account closed) before creating any properly-sized, billable
+resource, rather than compromise on that constraint for a short demo.
+
+**What stands as the deployment evidence instead:** the fully-verified
+Docker Compose stack (previous section) — three containers, tested
+end-to-end with real document uploads producing correct output, provable
+and reproducible by anyone who clones the repo and runs `docker compose up`.
+This is a genuine engineering trade-off, not a shortcut: proving
+containerization works correctly was prioritized over a cosmetic "hosted
+somewhere" checkbox that would have meant spending real money on either
+of two providers that both gatekept it more aggressively than expected.
+
+## Cloud deployment: attempted, honestly documented
+
+Given the project's zero-cost constraint, cloud deployment (beyond the
+already-verified local Docker Compose stack) was attempted on both major
+providers and stopped short on both, for real account-level reasons rather
+than any technical failure of the containerized app itself:
+
+- **GCP** required a ₹3,000 one-time prepayment before releasing its $300
+  trial credit — a real, if refundable, upfront cost that conflicted with
+  the project's constraint. The billing account was closed without
+  proceeding.
+- **AWS**, on the newer account model (accounts created after July 15,
+  2025), restricts Free Plan accounts to free-tier-eligible instance types
+  only (`t2.micro`/`t3.micro`, ~1GB RAM) regardless of earned credit balance
+  — not enough RAM to run Ollama with a 7B model. Launching anything larger
+  requires explicitly upgrading to a paid account plan. Two credit-earning
+  activities ($40 total) were completed safely on a free-tier instance
+  first; the account was closed before upgrading to a paid plan for the
+  larger instance the real test would have needed.
+
+**What stands as the deployment evidence instead**: the fully-tested,
+three-service Docker Compose stack (Ollama, FastAPI backend, React
+frontend) documented in the Containerization section above — built,
+started, and verified end-to-end on a real machine with real uploads
+producing correct results, which is the substantive engineering work a
+cloud deployment would otherwise be demonstrating on top of.
+
 ## Roadmap
 
 - [x] Phase 0 — Environment setup
@@ -358,8 +429,11 @@ Docker build check for both images.
 - [x] Phase 6 — React frontend, redesigned around the audit/ledger domain
 - [x] Phase 7 — Docker + GitHub Actions CI/CD, verified end-to-end against
       running containers (not just successful builds)
-- [ ] Phase 8 — Deployment (Hugging Face Spaces permanent; AWS + GCP for
-      short-lived resume-credential capture)
+- [x] Phase 8 — Cloud deployment evaluated on both GCP and AWS; not pursued
+      after both presented real account-level cost barriers (GCP's
+      prepayment requirement, AWS's paid-plan gate on adequately-sized
+      instances) — documented as a deliberate trade-off, with the
+      containerized stack (Phase 7) standing as verified deployment evidence
 - [ ] Phase 9 — Polish, demo video, resume packaging
 
 ## Resume framing
@@ -374,6 +448,9 @@ verified SEC filing data, correctly diagnosing a false positive as an
 extraction error rather than a logic flaw. Diagnosed and fixed a retrieval
 ranking failure and a two-layer non-determinism issue spanning LLM decoding
 and retrieval ordering. Backed by a 32-test automated regression suite
-(pytest + Vitest) that caught two real bugs during development. Delivered
-via a FastAPI backend with per-job isolated
-indexing and a React frontend designed around the audit domain."*
+(pytest + Vitest) that caught four real bugs during development, including
+a cross-machine locale-formatting issue and a fully-functional feature that
+was silently invisible in the UI. Delivered via a FastAPI backend with
+per-job isolated indexing, a React frontend designed around the audit
+domain, and a fully containerized Docker Compose stack (Ollama, backend,
+frontend) verified end-to-end against live running containers."*
