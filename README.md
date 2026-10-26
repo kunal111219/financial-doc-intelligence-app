@@ -8,6 +8,52 @@ Built end-to-end: retrieval, multi-agent orchestration, a FastAPI backend, a
 React frontend, and a set of real audit/forensic-accounting checks — entirely
 with free and open-source tools.
 
+## Demo
+
+**[Demo video](https://youtu.be/xBD0LGKAMQI)** — a ~2-3 minute walkthrough: `docker compose up`,
+uploading a batch of invoices/contracts, and the resulting report with
+flagged findings and the Benford's Law analysis.
+
+![Ledger report view](screenshots/report-view.png)
+*A finished report: hero metrics, document summary, and tinted HIGH/MEDIUM
+findings.*
+
+## Quick start
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+```bash
+git clone https://github.com/kunal111219/financial-doc-intelligence-app.git
+cd financial-doc-intelligence-app
+docker compose up -d
+docker compose exec ollama ollama pull mistral
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+Then open:
+- **App:** http://localhost:3000
+- **API docs:** http://localhost:8000/docs
+
+The first upload after startup is slower while Ollama loads the model into
+memory — subsequent ones are faster. To stop: `docker compose down` (models
+and data persist in Docker volumes for next time).
+
+No Docker? See the [local dev setup](#local-development-without-docker)
+below for running the backend and frontend directly.
+
+![Benford's Law analysis](screenshots/benford-analysis-1.png)
+![Benford's Law analysis](screenshots/benford-analysis-2.png)
+*The Benford's Law statistical section, shown only when the sample size is
+large enough to be meaningful.*
+
+<!-- To fill in:
+1. Create a `screenshots/` folder at the project root.
+2. Drop in `report-view.png` and `benford-section.png` (or rename these
+   references to match whatever files you add).
+3. Replace VIDEO_LINK_HERE with your YouTube/GitHub video link.
+4. Delete this comment block once done.
+-->
+
 ## What this actually is (an honest scope note)
 
 Early on this project was pitched as "a Big 4-style audit tool." That
@@ -91,6 +137,38 @@ frontend/
     ├── reportParser.js           Extracted, unit-tested report-parsing logic
     ├── reportParser.test.js      10 Vitest tests — including 2 real regressions caught
     └── index.css                  Tailwind v4 theme tokens (@theme block)
+```
+
+## Local development (without Docker)
+
+Requires [Ollama](https://ollama.com) installed and running, with `mistral`
+and `nomic-embed-text` pulled.
+
+```bash
+# Backend
+cd backend
+python -m venv venv
+venv\Scripts\activate          # Windows; use source venv/bin/activate on Mac/Linux
+pip install -r requirements.txt
+python retrieval/ingest.py     # build the index from data/raw/
+uvicorn app:app --reload
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+Backend runs at http://localhost:8000, frontend at whatever port Vite prints
+(usually http://localhost:5173). Don't run this alongside the Docker stack
+— both bind the same ports.
+
+CLI usage, no UI needed:
+```bash
+cd backend
+python run_pipeline.py invoice   # run against filenames containing "invoice"
+python run_pipeline.py 10k       # run against the 10-Ks
+python run_pipeline.py --list    # list what's indexed, without running
 ```
 
 ## Test document set
@@ -434,7 +512,7 @@ cloud deployment would otherwise be demonstrating on top of.
       prepayment requirement, AWS's paid-plan gate on adequately-sized
       instances) — documented as a deliberate trade-off, with the
       containerized stack (Phase 7) standing as verified deployment evidence
-- [ ] Phase 9 — Polish, demo video, resume packaging
+- [x] Phase 9 — Polish, demo video, resume packaging
 
 ## Resume framing
 
